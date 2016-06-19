@@ -34,7 +34,7 @@ def find_files(path, extensions):
                 yield (p, extension)
 
 
-def read(filename, limit=None):
+def read(filename, start=None, limit=None):
     """
     Reads any file supported by pydub (ffmpeg) and returns the data contained
     within. If file reading fails due to input being a 24-bit wav file,
@@ -50,8 +50,17 @@ def read(filename, limit=None):
     try:
         audiofile = AudioSegment.from_file(filename)
 
-        if limit:
-            audiofile = audiofile[:limit * 1000]
+        #if limit :
+        #    print "limit" + str(limit)
+        #    audiofile = audiofile[:limit * 1000]
+			
+        if start and limit :
+            print "start" + str(start)
+            #print "limit" + str(limit)
+            audiofile = audiofile[start*1000: limit*1000]
+            print audiofile
+            #audiofile.export("/media/sf_C_DRIVE/Users/vsahu/Desktop/audio/train/abc.mp3")
+        
 
         data = np.fromstring(audiofile._data, np.int16)
 

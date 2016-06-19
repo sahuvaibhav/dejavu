@@ -25,9 +25,13 @@ class FileRecognizer(BaseRecognizer):
     def __init__(self, dejavu):
         super(FileRecognizer, self).__init__(dejavu)
 
-    def recognize_file(self, filename):
-        frames, self.Fs, file_hash = decoder.read(filename, self.dejavu.limit)
-
+    #def recognize_file(self, filename):
+    #    print self.dejavu.limit
+    #    frames, self.Fs, file_hash = decoder.read(filename, self.dejavu.limit)
+		
+    def recognize_file(self, filename,start=None,limit=None):
+        #print limit
+        frames, self.Fs, file_hash = decoder.read(filename,start,limit)
         t = time.time()
         match = self._recognize(*frames)
         t = time.time() - t
@@ -37,8 +41,8 @@ class FileRecognizer(BaseRecognizer):
 
         return match
 
-    def recognize(self, filename):
-        return self.recognize_file(filename)
+    def recognize(self, filename,start = None,limit=None):
+        return self.recognize_file(filename,start=None,limit=None)
 
 
 class MicrophoneRecognizer(BaseRecognizer):
