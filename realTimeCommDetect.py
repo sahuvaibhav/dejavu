@@ -1,13 +1,15 @@
-import sys, getopt, time
+import sys, getopt, time, os
 import warnings
 warnings.filterwarnings("ignore")
 import json
 from dejavu import Dejavu
-from dejavu.recognize import FileRecognizer, MicrophoneRecognizer
+from dejavu.recognize import FileRecognizer
 import urllib2
+import shutil
+from multiprocessing import Process
 
-def main(argv):
-    
+def main(argv):   
+    global configFile
     limit = None
     configFile = None 
     try:
@@ -41,31 +43,61 @@ def main(argv):
             if not limit:
                 print "Please provide time limit in seconds to records live stream"
                 sys.exit()
-            recordLive(liveURL,limit)
-            #detect(configFile)
+            try:
+               
+	# create a Dejavu instance
+                
+                while True:
+                    p1 = Process(target=recordProcess,args=(liveURL,limit))
+                    p1.start()
+                    p2 = Process(target=detectProcess)
+                    p2.start()
+                    p1.join()
+                    p2.join()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+
+def recordProcess(liveURL,limit):
+    print "Connecting to "+liveURL
+    response = urllib2.urlopen(liveURL, timeout=float(limit))
+    while True:
+        recordLive(response,limit)
+    
+def detectProcess():
+    with open(configFile) as f:
+         config = json.load(f)	
+    djv = Dejavu(config)
+    recognizer = FileRecognizer(djv)
+    while True:
+        time.sleep(1)
+        if os.path.isfile("/tmp/temptemp.mp3"):
+            print "Detecting \n"
+            s = time.time()
+            detect(recognizer)
+            print "time to detect: " + str(time.time()-s)
+            os.remove("/tmp/temptemp.mp3")
+            print "file removed"
+        else:
+            #print "File not ready \n"
+            pass
 
 def train(configFile,trainFolder):
 	with open(configFile) as f:
 	    config = json.load(f)	
-
-	# create a Dejavu instance
+     
 	djv = Dejavu(config)
-
-	# Fingerprint all the mp3's in the directory we give it
 	djv.fingerprint_directory(trainFolder, [".mp3"])
 
-def recordLive(liveURL,limit):
-	url = liveURL
-	print "Connecting to "+url
-	response = urllib2.urlopen(url, timeout=float(limit))
-	fname = "/tmp/temp.mp3"
-	f = open(fname, 'wb')
-	block_size = 1024
-	print "Recording roughly 10 seconds of audio Now - Please wait"
-	#limit = 10
-	start = time.time()
-        print int(limit)
-	while time.time() - start < int(limit):
+def recordLive(response,limit):
+    fname = "/tmp/temp.mp3"
+    f = open(fname, 'wb')
+    block_size = 1024
+    print "Recording audio Now - Please wait"
+    #limit = 10
+    start = time.time()
+    print int(limit)
+    
+    while time.time() - start < int(limit):
 		try:
 		    audio = response.read(block_size)
 		    if not audio:
@@ -75,24 +107,22 @@ def recordLive(liveURL,limit):
 		    sys.stdout.flush()
 		except Exception as e:
 		    print ("Error "+str(e))
-	f.close()
-	sys.stdout.flush()
-	print ""
-	print "10 seconds from "+url+" have been recorded in "+fname
+    
+    f.close()
+    shutil.copy2("/tmp/temp.mp3","/tmp/temptemp.mp3")
+    sys.stdout.flush()
+    print ""
+    print "Audio Stream recorded in "+fname
 
 
-def detect(configFile):
-	with open(configFile) as f:
-	    config = json.load(f)	
-	# create a Dejavu instance
-	djv = Dejavu(config)
-	recognizer = FileRecognizer(djv)
-	filename = "/tmp/temp.mp3"
-	#limit=5
-	song = recognizer.recognize_file(filename = filename)
-	#    if song["confidence"] >=1000:
-	print "song name: %s\n" % song["song_name"]
-	print "confidence: %s\n" % song["confidence"]
+def detect(recognizer):
+    filename = "/tmp/temptemp.mp3"
+    song = recognizer.recognize_file(filename = filename)
+ 
+	#if song["confidence"] >=100:
+    print "*************ad detected!****************\n"
+    print "ad name: %s\n" % song["song_name"]
+    print "confidence: %s\n" % song["confidence"]
 
 
 if __name__ == "__main__":
