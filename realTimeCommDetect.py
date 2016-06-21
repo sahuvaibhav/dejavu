@@ -7,22 +7,24 @@ from dejavu.recognize import FileRecognizer
 import urllib2
 import shutil
 from multiprocessing import Process
+import httplib
+import subprocess
 
 def main(argv):   
-    global configFile
+    global configFile, tempFile, tempCopy
     limit = None
     configFile = None 
     try:
-        opts, args = getopt.getopt(argv,"hc:t:l:d:",["cfile=","ifolder=","limit=","url="])
+        opts, args = getopt.getopt(argv,"hc:t:l:d:a:",["cfile=","ifolder=","limit=","url=","aac="])
         print opts
     except getopt.GetoptError:
-        print 'realTimeCommDetect.py -c <configfile> -t <ifolder> -l <limit> -d <url>'
+        print 'realTimeCommDetect.py -c <configfile> -t <ifolder> -l <limit> -d <url> -a <aac>'
         sys.exit(2)
         
-        
+   
     for opt, arg in opts:
         if opt == "-h":
-            print 'realTimeCommDetect.py -c <configfile> -t <ifolder> -l <limit> -d <url> '
+            print 'realTimeCommDetect.py -c <configfile> -t <ifolder> -l <limit> -d <url> -a <aac>'
             sys.exit()
         if opt in ("-c" ,"--cfile"):
             configFile = arg
@@ -37,6 +39,12 @@ def main(argv):
         if opt in ("-d", "--url"):
             liveURL = arg
             print liveURL
+            tempFile = "/tmp/"+liveURL.split("/")[-1]+".mp3"
+            tempCopy = "/tmp/"+liveURL.split("/")[-1]+"_temp.mp3"
+            if os.path.isfile(tempFile):
+                os.remove(tempFile)
+            if os.path.isfile(tempCopy):
+                os.remove(tempCopy)
             if not configFile:
                 print "Please provide config file"
                 sys.exit()
@@ -44,22 +52,66 @@ def main(argv):
                 print "Please provide time limit in seconds to records live stream"
                 sys.exit()
             try:
-               
-	# create a Dejavu instance
-                
-                while True:
-                    p1 = Process(target=recordProcess,args=(liveURL,limit))
-                    p1.start()
-                    p2 = Process(target=detectProcess)
-                    p2.start()
-                    p1.join()
-                    p2.join()
+                p1 = Process(target=recordProcess,args=(liveURL,limit))
+                p1.start()
+                p2 = Process(target=detectProcess)
+                p2.start()
+                p1.join()
+                p2.join()
             except (KeyboardInterrupt, SystemExit):
                 raise
+                
+        if opt in("-a","--aac"):
+            aacURL = arg
+            print aacURL
+            tempFile = "/tmp/"+aacURL.split("/")[-1].split(".")[0]+".mp3"
+            tempCopy = "/tmp/"+aacURL.split("/")[-1].split(".")[0]+"_temp.mp3"
+            if os.path.isfile(tempFile):
+                os.remove(tempFile)
+            if os.path.isfile(tempCopy):
+                os.remove(tempCopy)
+            if not configFile:
+                print "Please provide config file"
+                sys.exit()
+            if not limit:
+                print "Please provide time limit in seconds to records live stream"
+                sys.exit()
+            
+            print "connecting to " + aacURL
+            m,s = divmod(int(limit),60)
+            h,m = divmod(m, 60)
+            time  = str(h) + ":" + str(m) + ":" + str(s)
+            command = "ffmpeg -y -i "+ aacURL + " -t " + time + " " + tempFile
+            try:
+                p1 = Process(target=aacRecord, args = (command,))
+                p1.start()
+                p2 = Process(target=detectProcess)
+                p2.start()
+                p1.join()
+                p2.join()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+                
+
+def aacRecord(command):
+    while True:
+        s = time.time()
+        subprocess.call(command, shell =True)
+        print "time to record: " + str(time.time() - s)
+        shutil.copy2(tempFile, tempCopy)
+    
 
 def recordProcess(liveURL,limit):
     print "Connecting to "+liveURL
-    response = urllib2.urlopen(liveURL, timeout=float(limit))
+    result =None
+    while result is None:
+        try:
+            response = urllib2.urlopen(liveURL, timeout=float(limit))
+            result = False
+        except (IOError, httplib.HTTPException):
+            print "Bad Connection! Don't Worry Connecting Again"
+            continue
+    #response = urllib2.urlopen(liveURL, timeout=float(limit))
     while True:
         recordLive(response,limit)
     
@@ -70,12 +122,12 @@ def detectProcess():
     recognizer = FileRecognizer(djv)
     while True:
         time.sleep(1)
-        if os.path.isfile("/tmp/temptemp.mp3"):
+        if os.path.isfile(tempCopy):
             print "Detecting \n"
             s = time.time()
             detect(recognizer)
             print "time to detect: " + str(time.time()-s)
-            os.remove("/tmp/temptemp.mp3")
+            os.remove(tempCopy)
             print "file removed"
         else:
             #print "File not ready \n"
@@ -89,8 +141,8 @@ def train(configFile,trainFolder):
 	djv.fingerprint_directory(trainFolder, [".mp3"])
 
 def recordLive(response,limit):
-    fname = "/tmp/temp.mp3"
-    f = open(fname, 'wb')
+    
+    f = open(tempFile, 'wb')
     block_size = 1024
     print "Recording audio Now - Please wait"
     #limit = 10
@@ -109,20 +161,21 @@ def recordLive(response,limit):
 		    print ("Error "+str(e))
     
     f.close()
-    shutil.copy2("/tmp/temp.mp3","/tmp/temptemp.mp3")
+    shutil.copy2(tempFile,tempCopy)
     sys.stdout.flush()
     print ""
-    print "Audio Stream recorded in "+fname
+    print "Audio Stream recorded in "+tempFile
 
 
 def detect(recognizer):
-    filename = "/tmp/temptemp.mp3"
+    filename = tempCopy
     song = recognizer.recognize_file(filename = filename)
  
-	#if song["confidence"] >=100:
-    print "*************ad detected!****************\n"
-    print "ad name: %s\n" % song["song_name"]
-    print "confidence: %s\n" % song["confidence"]
+    if song["confidence"] >=100:
+        print "*************ad detected!****************\n"
+        print "ad name: %s\n" % song["song_name"]
+        print "confidence: %s\n" % song["confidence"]
+        print "ad detected at time " + str(time.ctime())
 
 
 if __name__ == "__main__":
